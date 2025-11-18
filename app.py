@@ -1,80 +1,71 @@
 from flask import Flask, request, jsonify
-from flask_cors import CORS
+from flask_cors import CORS, cross_origin
 import csv
 import os
 from datetime import datetime
 
 app = Flask(__name__)
 
-# Allow your uta.cloud domain (and localhost for testing) to call the API
-CORS(app, origins=[
-    "https://prh2350.uta.cloud",
-    "http://localhost",
-    "http://127.0.0.1"
-])
-
-
-PROJECTS = [
-    {
-        "title": "Cyclistic Bike-Sharing Case Study",
-        "date": "Aug 2024 – Present",
-        "description": (
-            "Analyzed hundreds of thousands of ride records using Google BigQuery "
-            "and Google Cloud. Cleaned, transformed, and modeled data to explore "
-            "usage patterns and created visualizations in Excel and Tableau."
-        ),
-        "tools": "Google BigQuery, Google Cloud, Excel, Tableau",
+# ✅ Allow cross-origin requests to /api/* (including your uta.cloud site)
+# You can restrict "origins" later if you want, but "*" is easiest for now.
+CORS(
+    app,
+    resources={
+        r"/api/*": {
+            "origins": "*",
+            "methods": ["GET", "POST", "OPTIONS"],
+            "allow_headers": ["Content-Type"],
+        }
     },
-    {
-        "title": "Employee Performance Database (SQL Server)",
-        "date": "Nov 2024",
-        "description": (
-            "Designed and implemented a relational database for tracking employee "
-            "performance to practice SQL Server and demonstrate proactive learning."
-        ),
-        "tools": "SQL Server",
-    },
-    {
-        "title": "Bellabeat Case Study",
-        "date": "Aug 2024 – Present",
-        "description": (
-            "Performed a data analytics case study in Python, exploring user activity "
-            "data and generating insights for a wellness-focused product."
-        ),
-        "tools": "Python, pandas",
-    }
-]
+)
 
 
-@app.get("/api/projects")
-def get_projects():
-    """Return project data as JSON."""
-    return jsonify(PROJECTS)
+# ✅ Contact endpoint
+@app.route("/api/contact", methods=["POST", "OPTIONS"])
+@cross_origin(origins="*", methods=["POST", "OPTIONS"], headers=["Content-Type"])
+def contact():
+    # Handle CORS preflight request explicitly
+    if request.method == "OPTIONS":
+        # No body needed; CORS headers are added by flask-cors
+        return "", 204
 
+    # ---- Normal POST handling starts here ----
+    try:
+        data = request.get_json(force=True) or {}
+    except Exception:
+        return jsonify({"success": False, "error": "Invalid JSON body"}), 400
 
-@app.post("/api/contact")
-def submit_contact():
-    """Receive contact form data and append to a CSV file."""
-    data = request.get_json() or {}
     name = (data.get("name") or "").strip()
     email = (data.get("email") or "").strip()
     message = (data.get("message") or "").strip()
 
+    # Basic validation to match what the frontend expects
     if not name or not email or not message:
-        return jsonify({"ok": False, "error": "All fields are required."}), 400
+        return jsonify({"success": False, "error": "Missing required fields"}), 400
 
-    row = [datetime.utcnow().isoformat(), name, email, message]
+    # ✅ Log messages into a CSV file
+    file_path = "messages.csv"
+    file_exists = os.path.isfile(file_path)
 
-    file_exists = os.path.isfile("contact_messages.csv")
-    with open("contact_messages.csv", "a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        if not file_exists:
-            writer.writerow(["timestamp_utc", "name", "email", "message"])
-        writer.writerow(row)
+    try:
+        with open(file_path, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow(["timestamp_utc", "name", "email", "message"])
+            writer.writerow([datetime.utcnow().isoformat(), name, email, message])
+    except Exception as e:
+        # If file writing fails, return a clear error for your toast
+        return jsonify({"success": False, "error": f"Server error: {e}"}), 500
 
-    return jsonify({"ok": True})
+    # What your frontend expects on success
+    return jsonify({"success": True}), 200
+
+
+# Simple health check so you can see if the backend is up
+@app.route("/")
+def index():
+    return jsonify({"status": "ok"})
 
 
 if __name__ == "__main__":
-    # Local development
     app.run(debug=True)
